@@ -277,7 +277,9 @@ export const AppProvider = ({ children }) => {
     }
     
     try {
-      const generatedMatches = generateRotations(selectedPlayers);
+      // Generate a large number of matches to simulate an endless session
+      // You can adjust this number based on expected usage
+      const generatedMatches = generateRotations(selectedPlayers, 100);
       
       // Initialize session stats
       const stats = {};
@@ -477,11 +479,59 @@ export const AppProvider = ({ children }) => {
         console.error('Error recording match:', matchError);
       }
       
-      // Determine next action based on current match index
+      // Move to next match - In endless mode, we always go to the next match
       const nextMatchIndex = currentMatchIndex + 1;
       
-      if (nextMatchIndex < matches.length) {
-        // Move to next match and update global state
+      // Check if we need to generate more matches
+      if (nextMatchIndex >= matches.length - 10) {
+        // If we're running out of matches, generate more
+        const newMatches = [...matches];
+        const additionalMatches = generateRotations(selectedPlayers, 20);
+        
+        // Find a good starting point in additional matches for continuity
+        const lastMatch = newMatches[newMatches.length - 1];
+        const lastPlayers = [lastMatch.player1.id, lastMatch.player2.id];
+        
+        let bestMatchIndex = 0;
+        let bestContinuityScore = 0;
+        
+        for (let i = 0; i < additionalMatches.length; i++) {
+          const match = additionalMatches[i];
+          const continuityCount = (lastPlayers.includes(match.player1.id) ? 1 : 0) + 
+                                 (lastPlayers.includes(match.player2.id) ? 1 : 0);
+          
+          if (continuityCount > bestContinuityScore) {
+            bestContinuityScore = continuityCount;
+            bestMatchIndex = i;
+          }
+        }
+        
+        // Add the additional matches from the best starting point
+        for (let i = 0; i < additionalMatches.length; i++) {
+          const index = (bestMatchIndex + i) % additionalMatches.length;
+          newMatches.push(additionalMatches[index]);
+        }
+        
+        // Update in Supabase
+        const { error } = await supabase
+          .from('active_session')
+          .update({
+            matches: newMatches,
+            current_match_index: nextMatchIndex,
+            session_stats: updatedStats,
+            current_player1_score: 0,
+            current_player2_score: 0
+          })
+          .eq('id', 1);
+        
+        if (error) {
+          console.error('Error updating extended matches:', error);
+        }
+        
+        // Update local state
+        setMatches(newMatches);
+      } else {
+        // Just update the match index
         const { error } = await supabase
           .from('active_session')
           .update({
@@ -495,16 +545,13 @@ export const AppProvider = ({ children }) => {
         if (error) {
           console.error('Error updating global session:', error);
         }
-        
-        // Update local state
-        setCurrentMatchIndex(nextMatchIndex);
-        setSessionStats(updatedStats);
-        setCurrentPlayer1Score(0);
-        setCurrentPlayer2Score(0);
-      } else {
-        // End session if it was the last match
-        await endSession();
       }
+      
+      // Update local state
+      setCurrentMatchIndex(nextMatchIndex);
+      setSessionStats(updatedStats);
+      setCurrentPlayer1Score(0);
+      setCurrentPlayer2Score(0);
     } catch (err) {
       console.error('Exception recording match result:', err);
     }

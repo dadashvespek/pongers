@@ -25,7 +25,7 @@ const MatchScheduler = () => {
               onClick={startSession}
               disabled={selectedPlayers.length < 2}
             >
-              Generate Match Rotation
+              Start Match
             </button>
           </div>
         </div>

@@ -1,3 +1,4 @@
+// src/components/MatchScheduler/CurrentMatch.jsx
 import React from 'react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -25,7 +26,7 @@ const CurrentMatch = () => {
   
   return (
     <div className="current-match">
-      <h3>Current Match {currentMatchIndex + 1} of {matches.length}</h3>
+      <h3>Current Match #{currentMatchIndex + 1}</h3>
       
       <div className="match-display">
         <div className="player-side">

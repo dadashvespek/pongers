@@ -1,10 +1,12 @@
+// src/components/MatchScheduler/UpcomingMatches.jsx
 import React from 'react';
 import { useAppContext } from '../../context/AppContext';
 
 const UpcomingMatches = () => {
   const { matches, currentMatchIndex } = useAppContext();
   
-  const upcomingMatches = matches.slice(currentMatchIndex + 1);
+  // Only show the next 3 upcoming matches
+  const upcomingMatches = matches.slice(currentMatchIndex + 1, currentMatchIndex + 4);
   
   if (!upcomingMatches.length) {
     return (
