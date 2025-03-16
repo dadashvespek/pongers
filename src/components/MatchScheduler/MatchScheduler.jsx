@@ -1,41 +1,46 @@
 import React from 'react';
-import { useAppContext } from '../../context/AppContext';
 import PlayerSelection from './PlayerSelection';
 import CurrentMatch from './CurrentMatch';
 import UpcomingMatches from './UpcomingMatches';
+import { useAppContext } from '../../context/AppContext';
 
 const MatchScheduler = () => {
-  const { activeSession, generateMatchSchedule, endSession } = useAppContext();
-
+  const { 
+    selectedPlayers, 
+    sessionActive, 
+    startSession,
+    endSession
+  } = useAppContext();
+  
   return (
-    <div className="match-scheduler section">
-      {!activeSession ? (
-        <>
-          <h2 className="section-title">Start a New Session</h2>
+    <div className="match-scheduler">
+      {!sessionActive ? (
+        <div className="session-setup">
+          <h2>Set Up New Session</h2>
           <PlayerSelection />
-          <div className="action-buttons">
+          
+          <div className="actions">
             <button 
-              className="btn" 
-              onClick={generateMatchSchedule}
+              className="primary-button"
+              onClick={startSession}
+              disabled={selectedPlayers.length < 2}
             >
-              Generate Rotation
+              Generate Match Rotation
             </button>
           </div>
-        </>
+        </div>
       ) : (
-        <>
-          <div className="section-header">
-            <h2 className="section-title">Current Session</h2>
-            <button 
-              className="btn btn-danger" 
-              onClick={endSession}
-            >
+        <div className="active-session">
+          <div className="session-header">
+            <h2>Current Session</h2>
+            <button className="secondary-button" onClick={endSession}>
               End Session
             </button>
           </div>
+          
           <CurrentMatch />
           <UpcomingMatches />
-        </>
+        </div>
       )}
     </div>
   );

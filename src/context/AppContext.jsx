@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid'; // Add this import for UUID generation
 import { supabase } from '../services/supabaseClient';
 import { generateRotations } from '../utils/rotationCalculator';
 
@@ -7,279 +8,376 @@ const AppContext = createContext();
 export const useAppContext = () => useContext(AppContext);
 
 export const AppProvider = ({ children }) => {
-  // Players
-  const [allPlayers, setAllPlayers] = useState([]);
+  // Players state
+  const [players, setPlayers] = useState([]);
   const [selectedPlayers, setSelectedPlayers] = useState([]);
   
-  // Matches
-  const [matchRotation, setMatchRotation] = useState([]);
+  // Matches state
+  const [matches, setMatches] = useState([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
-  const [sessionMatches, setSessionMatches] = useState([]);
-  const [activeSession, setActiveSession] = useState(null);
   
-  // Stats
-  const [playerStats, setPlayerStats] = useState({});
-  const [viewMode, setViewMode] = useState('current'); // 'current' or 'allTime'
-
-  // Fetch all players on initial load
+  // Session state
+  const [sessionActive, setSessionActive] = useState(false);
+  const [sessionStats, setSessionStats] = useState({});
+  
+  // Player stats
+  const [allTimeStats, setAllTimeStats] = useState({});
+  
+  // Loading states
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // Load players from Supabase on initial load
   useEffect(() => {
     const fetchPlayers = async () => {
-      const { data, error } = await supabase.from('players').select('*');
-      if (error) {
-        console.error('Error fetching players:', error);
-      } else {
-        setAllPlayers(data || []);
-      }
-    };
-
-    const fetchActiveSession = async () => {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      setIsLoading(true);
+      setError(null);
       
-      if (error) {
-        console.error('Error fetching active session:', error);
-      } else if (data && data.length > 0) {
-        setActiveSession(data[0]);
-        fetchSessionData(data[0].id);
+      try {
+        const { data, error } = await supabase
+          .from('players')
+          .select('*');
+        
+        if (error) {
+          console.error('Error fetching players:', error);
+          setError('Failed to load players');
+          return;
+        }
+        
+        setPlayers(data || []);
+      } catch (err) {
+        console.error('Exception fetching players:', err);
+        setError('Failed to load players');
+      } finally {
+        setIsLoading(false);
       }
     };
-
+    
     fetchPlayers();
-    fetchActiveSession();
   }, []);
-
-  const fetchSessionData = async (sessionId) => {
-    // Fetch players for this session
-    const { data: sessionPlayers, error: playersError } = await supabase
-      .from('session_players')
-      .select('player_id, players(*)')
-      .eq('session_id', sessionId);
-    
-    if (!playersError && sessionPlayers) {
-      const selected = sessionPlayers.map(sp => sp.players);
-      setSelectedPlayers(selected);
-    }
-    
-    // Fetch matches for this session
-    const { data: matches, error: matchesError } = await supabase
-      .from('matches')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('match_order', { ascending: true });
-    
-    if (!matchesError && matches) {
-      setSessionMatches(matches);
+  
+  // Load all-time stats from Supabase
+  useEffect(() => {
+    const fetchStats = async () => {
+      setIsLoading(true);
       
-      // Find the current match (first unfinished match)
-      const currentMatch = matches.findIndex(match => match.is_completed === false);
-      if (currentMatch !== -1) {
-        setCurrentMatchIndex(currentMatch);
+      try {
+        const { data, error } = await supabase
+          .from('player_stats')
+          .select('*');
+        
+        if (error) {
+          console.error('Error fetching stats:', error);
+          return;
+        }
+        
+        // Convert array to object with player id as key
+        const statsObj = {};
+        data?.forEach(stat => {
+          statsObj[stat.player_id] = stat;
+        });
+        
+        setAllTimeStats(statsObj);
+      } catch (err) {
+        console.error('Exception fetching stats:', err);
+      } finally {
+        setIsLoading(false);
       }
-    }
-  };
-
-  // Add a new player
+    };
+    
+    fetchStats();
+  }, []);
+  
+  // Add a new player with proper UUID
   const addPlayer = async (name) => {
-    if (!name.trim()) return null;
-    
-    const { data, error } = await supabase
-      .from('players')
-      .insert([{ name }])
-      .select();
-    
-    if (error) {
-      console.error('Error adding player:', error);
+    if (!name || !name.trim()) {
       return null;
     }
     
-    setAllPlayers([...allPlayers, data[0]]);
-    return data[0];
-  };
-
-  // Toggle player selection for current session
-  const togglePlayerSelection = (player) => {
-    if (selectedPlayers.find(p => p.id === player.id)) {
-      setSelectedPlayers(selectedPlayers.filter(p => p.id !== player.id));
-    } else {
-      setSelectedPlayers([...selectedPlayers, player]);
+    try {
+      // Generate a proper UUID for the player
+      const newPlayerId = uuidv4();
+      
+      const { data, error } = await supabase
+        .from('players')
+        .insert({ 
+          id: newPlayerId,
+          name: name.trim() 
+        })
+        .select();
+      
+      if (error) {
+        console.error('Error adding player:', error);
+        return null;
+      }
+      
+      const newPlayer = data[0];
+      setPlayers(prev => [...prev, newPlayer]);
+      return newPlayer;
+    } catch (err) {
+      console.error('Exception adding player:', err);
+      return null;
     }
   };
-
-  // Generate match rotation
-  const generateMatchSchedule = async () => {
+  
+  // Player selection methods
+  const selectPlayer = (player) => {
+    if (!player || !player.id) {
+      console.error('Invalid player object:', player);
+      return;
+    }
+    
+    if (!selectedPlayers.find(p => p.id === player.id)) {
+      setSelectedPlayers(prev => [...prev, player]);
+    }
+  };
+  
+  const unselectPlayer = (playerId) => {
+    if (!playerId) {
+      return;
+    }
+    
+    setSelectedPlayers(prev => prev.filter(p => p.id !== playerId));
+  };
+  
+  // Start a new session with selected players
+  const startSession = () => {
     if (selectedPlayers.length < 2) {
-      alert('You need at least 2 players to generate matches');
+      setError('Need at least 2 players to start a session');
       return;
     }
     
-    // Create a new session
-    const { data: session, error: sessionError } = await supabase
-      .from('sessions')
-      .insert([{ is_active: true }])
-      .select();
-    
-    if (sessionError) {
-      console.error('Error creating session:', sessionError);
-      return;
-    }
-    
-    setActiveSession(session[0]);
-    
-    // Add players to this session
-    const sessionPlayers = selectedPlayers.map(player => ({
-      session_id: session[0].id,
-      player_id: player.id
-    }));
-    
-    await supabase.from('session_players').insert(sessionPlayers);
-    
-    // Generate fair rotations
-    const rotations = generateRotations(selectedPlayers);
-    setMatchRotation(rotations);
-    
-    // Create matches in the database
-    const matches = rotations.map((match, index) => ({
-      session_id: session[0].id,
-      player1_id: match.player1.id,
-      player2_id: match.player2.id,
-      match_order: index,
-      is_completed: false,
-      player1_score: 0,
-      player2_score: 0,
-    }));
-    
-    const { data: matchesData } = await supabase
-      .from('matches')
-      .insert(matches)
-      .select();
-    
-    setSessionMatches(matchesData || []);
-    setCurrentMatchIndex(0);
-  };
-
-  // Update match score
-  const updateScore = async (player, increment = true) => {
-    if (!sessionMatches[currentMatchIndex]) return;
-    
-    const currentMatch = sessionMatches[currentMatchIndex];
-    const isPlayer1 = player.id === currentMatch.player1_id;
-    const scoreField = isPlayer1 ? 'player1_score' : 'player2_score';
-    
-    const newScore = increment 
-      ? (isPlayer1 ? currentMatch.player1_score + 1 : currentMatch.player2_score + 1)
-      : (isPlayer1 ? Math.max(0, currentMatch.player1_score - 1) : Math.max(0, currentMatch.player2_score - 1));
-    
-    const { data } = await supabase
-      .from('matches')
-      .update({ [scoreField]: newScore })
-      .eq('id', currentMatch.id)
-      .select();
-    
-    if (data) {
-      const updatedMatches = [...sessionMatches];
-      updatedMatches[currentMatchIndex] = data[0];
-      setSessionMatches(updatedMatches);
-    }
-  };
-
-  // Complete current match and move to the next
-  const completeMatch = async () => {
-    if (!sessionMatches[currentMatchIndex]) return;
-    
-    const currentMatch = sessionMatches[currentMatchIndex];
-    const player1Score = currentMatch.player1_score;
-    const player2Score = currentMatch.player2_score;
-    
-    // Determine winner
-    const winner_id = player1Score > player2Score 
-      ? currentMatch.player1_id 
-      : player2Score > player1Score 
-        ? currentMatch.player2_id 
-        : null;
-    
-    // Update match as completed
-    const { data } = await supabase
-      .from('matches')
-      .update({ 
-        is_completed: true,
-        winner_id 
-      })
-      .eq('id', currentMatch.id)
-      .select();
-    
-    // Update player stats
-    if (winner_id) {
-      // Update win/loss records
-      await supabase.rpc('increment_player_stats', { 
-        player_id: winner_id,
-        won: true 
+    try {
+      const generatedMatches = generateRotations(selectedPlayers);
+      setMatches(generatedMatches);
+      setCurrentMatchIndex(0);
+      setSessionActive(true);
+      
+      // Initialize session stats
+      const stats = {};
+      selectedPlayers.forEach(player => {
+        if (player && player.id) {
+          stats[player.id] = {
+            wins: 0,
+            losses: 0,
+            totalPoints: 0,
+            gamesPlayed: 0
+          };
+        }
       });
       
-      const loserId = winner_id === currentMatch.player1_id 
-        ? currentMatch.player2_id 
-        : currentMatch.player1_id;
-      
-      await supabase.rpc('increment_player_stats', { 
-        player_id: loserId,
-        won: false 
-      });
-    }
-    
-    // Update session matches
-    const updatedMatches = [...sessionMatches];
-    updatedMatches[currentMatchIndex] = data[0];
-    setSessionMatches(updatedMatches);
-    
-    // Move to next match if available
-    if (currentMatchIndex < sessionMatches.length - 1) {
-      setCurrentMatchIndex(currentMatchIndex + 1);
-    } else {
-      // End session if this was the last match
-      await supabase
-        .from('sessions')
-        .update({ is_active: false })
-        .eq('id', activeSession.id);
-      
-      setActiveSession(null);
+      setSessionStats(stats);
+      setError(null);
+    } catch (err) {
+      console.error('Error starting session:', err);
+      setError('Failed to start session');
     }
   };
-
-  // End current session early
+  
+  // End the current session
   const endSession = async () => {
-    if (!activeSession) return;
-    
-    await supabase
-      .from('sessions')
-      .update({ is_active: false })
-      .eq('id', activeSession.id);
-    
-    setActiveSession(null);
-    setSelectedPlayers([]);
-    setSessionMatches([]);
+    try {
+      // Save session results to Supabase
+      for (const playerId in sessionStats) {
+        if (!playerId) continue;
+        
+        const playerStat = sessionStats[playerId];
+        
+        try {
+          // Calculate new stats based on current session
+          const wins = (allTimeStats[playerId]?.wins || 0) + playerStat.wins;
+          const losses = (allTimeStats[playerId]?.losses || 0) + playerStat.losses;
+          const totalPoints = (allTimeStats[playerId]?.total_points || 0) + playerStat.totalPoints;
+          const gamesPlayed = (allTimeStats[playerId]?.games_played || 0) + playerStat.gamesPlayed;
+          
+          // Update all-time stats in Supabase
+          const { error } = await supabase
+            .from('player_stats')
+            .upsert({
+              player_id: playerId,
+              wins,
+              losses,
+              total_points: totalPoints,
+              games_played: gamesPlayed
+            });
+          
+          if (error) {
+            console.error('Error updating player stats:', error);
+          }
+        } catch (err) {
+          console.error('Exception updating player stats for player', playerId, err);
+        }
+      }
+      
+      // Update local all-time stats
+      const updatedStats = { ...allTimeStats };
+      for (const playerId in sessionStats) {
+        if (!playerId) continue;
+        
+        const playerStat = sessionStats[playerId];
+        
+        if (!updatedStats[playerId]) {
+          updatedStats[playerId] = {
+            player_id: playerId,
+            wins: 0,
+            losses: 0,
+            total_points: 0,
+            games_played: 0
+          };
+        }
+        
+        updatedStats[playerId].wins += playerStat.wins;
+        updatedStats[playerId].losses += playerStat.losses;
+        updatedStats[playerId].total_points += playerStat.totalPoints;
+        updatedStats[playerId].games_played += playerStat.gamesPlayed;
+      }
+      
+      setAllTimeStats(updatedStats);
+    } catch (err) {
+      console.error('Exception ending session:', err);
+    } finally {
+      // Reset session state regardless of errors
+      setSessionActive(false);
+      setSelectedPlayers([]);
+      setMatches([]);
+      setCurrentMatchIndex(0);
+      setSessionStats({});
+    }
   };
-
+  
+  // Record a match result with improved error handling
+  const recordMatchResult = async (player1Score, player2Score) => {
+    if (currentMatchIndex >= matches.length) {
+      console.error('Invalid match index:', currentMatchIndex);
+      return;
+    }
+    
+    try {
+      const currentMatch = matches[currentMatchIndex];
+      const player1Id = currentMatch.player1.id;
+      const player2Id = currentMatch.player2.id;
+      
+      // Validate player IDs
+      if (!player1Id || !player2Id) {
+        console.error('Invalid player IDs:', { player1: currentMatch.player1, player2: currentMatch.player2 });
+        return;
+      }
+      
+      // Validate scores
+      if (typeof player1Score !== 'number' || typeof player2Score !== 'number') {
+        console.error('Invalid scores:', { player1Score, player2Score });
+        return;
+      }
+      
+      // Update session stats
+      const updatedStats = { ...sessionStats };
+      
+      // Update game stats for both players
+      if (updatedStats[player1Id]) {
+        updatedStats[player1Id].gamesPlayed += 1;
+        updatedStats[player1Id].totalPoints += player1Score;
+      }
+      
+      if (updatedStats[player2Id]) {
+        updatedStats[player2Id].gamesPlayed += 1;
+        updatedStats[player2Id].totalPoints += player2Score;
+      }
+      
+      // Determine winner and update win/loss
+      if (player1Score > player2Score) {
+        if (updatedStats[player1Id]) updatedStats[player1Id].wins += 1;
+        if (updatedStats[player2Id]) updatedStats[player2Id].losses += 1;
+      } else if (player2Score > player1Score) {
+        if (updatedStats[player2Id]) updatedStats[player2Id].wins += 1;
+        if (updatedStats[player1Id]) updatedStats[player1Id].losses += 1;
+      }
+      
+      setSessionStats(updatedStats);
+      
+      // Record match in Supabase with explicit session_date
+      const { error } = await supabase
+        .from('matches')
+        .insert({
+          player1_id: player1Id,
+          player2_id: player2Id,
+          player1_score: player1Score,
+          player2_score: player2Score,
+          session_date: new Date().toISOString()
+        });
+      
+      if (error) {
+        console.error('Error recording match:', error);
+        // Continue to next match despite error
+      }
+      
+      // Move to next match
+      if (currentMatchIndex < matches.length - 1) {
+        setCurrentMatchIndex(prev => prev + 1);
+      } else {
+        // End session if it was the last match
+        await endSession();
+      }
+    } catch (err) {
+      console.error('Exception recording match result:', err);
+    }
+  };
+  
+  // Generate a quick match between two players
+  const startQuickMatch = (player1, player2) => {
+    if (!player1 || !player2 || player1.id === player2.id) {
+      setError('Need two different players for a quick match');
+      return;
+    }
+    
+    try {
+      setMatches([{ player1, player2 }]);
+      setCurrentMatchIndex(0);
+      setSessionActive(true);
+      
+      // Initialize session stats for the two players
+      const stats = {
+        [player1.id]: {
+          wins: 0,
+          losses: 0,
+          totalPoints: 0,
+          gamesPlayed: 0
+        },
+        [player2.id]: {
+          wins: 0,
+          losses: 0,
+          totalPoints: 0,
+          gamesPlayed: 0
+        }
+      };
+      
+      setSessionStats(stats);
+      setError(null);
+    } catch (err) {
+      console.error('Error starting quick match:', err);
+      setError('Failed to start quick match');
+    }
+  };
+  
+  // Pass down all values and functions needed by components
   const value = {
-    allPlayers,
+    players,
     selectedPlayers,
-    togglePlayerSelection,
-    addPlayer,
-    generateMatchSchedule,
-    matchRotation,
+    matches,
     currentMatchIndex,
-    sessionMatches,
-    activeSession,
-    updateScore,
-    completeMatch,
-    playerStats,
-    viewMode,
-    setViewMode,
-    endSession
+    sessionActive,
+    sessionStats,
+    allTimeStats,
+    isLoading,
+    error,
+    addPlayer,
+    selectPlayer,
+    unselectPlayer,
+    startSession,
+    endSession,
+    recordMatchResult,
+    startQuickMatch
   };
-
+  
   return (
     <AppContext.Provider value={value}>
       {children}
@@ -287,4 +385,4 @@ export const AppProvider = ({ children }) => {
   );
 };
 
-export default AppContext;
+export default AppProvider;
