@@ -16,6 +16,11 @@ export const AppProvider = ({ children }) => {
   const [matches, setMatches] = useState([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   
+  // Current scores state
+  const [currentPlayer1Score, setCurrentPlayer1Score] = useState(0);
+  const [currentPlayer2Score, setCurrentPlayer2Score] = useState(0);
+  const [scoreUpdatePending, setScoreUpdatePending] = useState(false);
+  
   // Session state
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionStats, setSessionStats] = useState({});
@@ -27,9 +32,9 @@ export const AppProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // Set up polling for active session instead of real-time subscription
+  // Set up polling for active session with score sync
   useEffect(() => {
-    // First, check if there's already an active session
+    // Check if there's already an active session
     const checkActiveSession = async () => {
       try {
         const { data, error } = await supabase
@@ -50,6 +55,12 @@ export const AppProvider = ({ children }) => {
           setCurrentMatchIndex(data.current_match_index || 0);
           setSelectedPlayers(data.selected_players || []);
           setSessionStats(data.session_stats || {});
+          
+          // Only update scores if we're not currently editing them
+          if (!scoreUpdatePending) {
+            setCurrentPlayer1Score(data.current_player1_score || 0);
+            setCurrentPlayer2Score(data.current_player2_score || 0);
+          }
         } else if (!data.is_active && sessionActive) {
           // Session was ended elsewhere
           setSessionActive(false);
@@ -57,6 +68,8 @@ export const AppProvider = ({ children }) => {
           setCurrentMatchIndex(0);
           setSelectedPlayers([]);
           setSessionStats({});
+          setCurrentPlayer1Score(0);
+          setCurrentPlayer2Score(0);
         }
       } catch (err) {
         console.error('Exception checking active session:', err);
@@ -66,13 +79,53 @@ export const AppProvider = ({ children }) => {
     // Check immediately
     checkActiveSession();
     
-    // Then set up polling every 2 seconds
-    const intervalId = setInterval(checkActiveSession, 2000);
+    // Then set up polling every 1 second for better score sync
+    const intervalId = setInterval(checkActiveSession, 1000);
     
     return () => {
       clearInterval(intervalId);
     };
-  }, [sessionActive]);
+  }, [sessionActive, scoreUpdatePending]);
+  
+  // Effect to sync score changes to Supabase
+  useEffect(() => {
+    // When scores change, update the database
+    const syncScores = async () => {
+      if (!sessionActive || !scoreUpdatePending) return;
+      
+      try {
+        const { error } = await supabase
+          .from('active_session')
+          .update({
+            current_player1_score: currentPlayer1Score,
+            current_player2_score: currentPlayer2Score
+          })
+          .eq('id', 1);
+          
+        if (error) {
+          console.error('Error syncing scores:', error);
+        }
+        
+        // Reset the pending flag
+        setScoreUpdatePending(false);
+      } catch (err) {
+        console.error('Exception syncing scores:', err);
+      }
+    };
+    
+    syncScores();
+  }, [currentPlayer1Score, currentPlayer2Score, sessionActive, scoreUpdatePending]);
+  
+  // Score update functions
+  const updatePlayer1Score = (score) => {
+    setCurrentPlayer1Score(score);
+    setScoreUpdatePending(true);
+  };
+  
+  const updatePlayer2Score = (score) => {
+    setCurrentPlayer2Score(score);
+    setScoreUpdatePending(true);
+  };
   
   // Load players from Supabase on initial load
   useEffect(() => {
@@ -247,7 +300,9 @@ export const AppProvider = ({ children }) => {
           matches: generatedMatches,
           current_match_index: 0,
           selected_players: selectedPlayers,
-          session_stats: stats
+          session_stats: stats,
+          current_player1_score: 0,
+          current_player2_score: 0
         })
         .eq('id', 1);
       
@@ -262,6 +317,8 @@ export const AppProvider = ({ children }) => {
       setCurrentMatchIndex(0);
       setSessionActive(true);
       setSessionStats(stats);
+      setCurrentPlayer1Score(0);
+      setCurrentPlayer2Score(0);
       setError(null);
     } catch (err) {
       console.error('Error starting session:', err);
@@ -337,7 +394,9 @@ export const AppProvider = ({ children }) => {
           matches: [],
           current_match_index: 0,
           selected_players: [],
-          session_stats: {}
+          session_stats: {},
+          current_player1_score: 0,
+          current_player2_score: 0
         })
         .eq('id', 1);
       
@@ -351,13 +410,15 @@ export const AppProvider = ({ children }) => {
       setMatches([]);
       setCurrentMatchIndex(0);
       setSessionStats({});
+      setCurrentPlayer1Score(0);
+      setCurrentPlayer2Score(0);
     } catch (err) {
       console.error('Exception ending session:', err);
     }
   };
   
   // Record a match result with improved error handling
-  const recordMatchResult = async (player1Score, player2Score) => {
+  const recordMatchResult = async () => {
     if (currentMatchIndex >= matches.length) {
       console.error('Invalid match index:', currentMatchIndex);
       return;
@@ -374,11 +435,9 @@ export const AppProvider = ({ children }) => {
         return;
       }
       
-      // Validate scores
-      if (typeof player1Score !== 'number' || typeof player2Score !== 'number') {
-        console.error('Invalid scores:', { player1Score, player2Score });
-        return;
-      }
+      // Use the current scores from state
+      const player1Score = currentPlayer1Score;
+      const player2Score = currentPlayer2Score;
       
       // Update session stats
       const updatedStats = { ...sessionStats };
@@ -416,7 +475,6 @@ export const AppProvider = ({ children }) => {
       
       if (matchError) {
         console.error('Error recording match:', matchError);
-        // Continue to next match despite error
       }
       
       // Determine next action based on current match index
@@ -428,7 +486,9 @@ export const AppProvider = ({ children }) => {
           .from('active_session')
           .update({
             current_match_index: nextMatchIndex,
-            session_stats: updatedStats
+            session_stats: updatedStats,
+            current_player1_score: 0,
+            current_player2_score: 0
           })
           .eq('id', 1);
         
@@ -439,6 +499,8 @@ export const AppProvider = ({ children }) => {
         // Update local state
         setCurrentMatchIndex(nextMatchIndex);
         setSessionStats(updatedStats);
+        setCurrentPlayer1Score(0);
+        setCurrentPlayer2Score(0);
       } else {
         // End session if it was the last match
         await endSession();
@@ -482,7 +544,9 @@ export const AppProvider = ({ children }) => {
           matches: quickMatch,
           current_match_index: 0,
           selected_players: [player1, player2],
-          session_stats: stats
+          session_stats: stats,
+          current_player1_score: 0,
+          current_player2_score: 0
         })
         .eq('id', 1);
       
@@ -498,6 +562,8 @@ export const AppProvider = ({ children }) => {
       setSessionActive(true);
       setSessionStats(stats);
       setSelectedPlayers([player1, player2]);
+      setCurrentPlayer1Score(0);
+      setCurrentPlayer2Score(0);
       setError(null);
     } catch (err) {
       console.error('Error starting quick match:', err);
@@ -516,6 +582,12 @@ export const AppProvider = ({ children }) => {
     allTimeStats,
     isLoading,
     error,
+    // Expose score state and functions
+    currentPlayer1Score,
+    currentPlayer2Score,
+    updatePlayer1Score,
+    updatePlayer2Score,
+    // Other functions
     removePlayer,
     addPlayer,
     selectPlayer,
