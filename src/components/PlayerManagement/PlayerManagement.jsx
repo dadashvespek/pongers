@@ -49,7 +49,7 @@ const PlayerManagement = () => {
                 className="remove-player-btn"
                 onClick={() => handleRemovePlayer(player.id)}
               >
-                Remove
+                X
               </button>
             </div>
           ))}
