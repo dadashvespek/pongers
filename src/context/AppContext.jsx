@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { v4 as uuidv4 } from 'uuid'; // Add this import for UUID generation
+import { v4 as uuidv4 } from 'uuid';
 import { supabase } from '../services/supabaseClient';
 import { generateRotations } from '../utils/rotationCalculator';
 
@@ -26,6 +26,53 @@ export const AppProvider = ({ children }) => {
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Set up polling for active session instead of real-time subscription
+  useEffect(() => {
+    // First, check if there's already an active session
+    const checkActiveSession = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('active_session')
+          .select('*')
+          .eq('id', 1)
+          .single();
+        
+        if (error) {
+          console.error('Error checking active session:', error);
+          return;
+        }
+        
+        // If there's an active session, load it
+        if (data && data.is_active) {
+          setSessionActive(true);
+          setMatches(data.matches || []);
+          setCurrentMatchIndex(data.current_match_index || 0);
+          setSelectedPlayers(data.selected_players || []);
+          setSessionStats(data.session_stats || {});
+        } else if (!data.is_active && sessionActive) {
+          // Session was ended elsewhere
+          setSessionActive(false);
+          setMatches([]);
+          setCurrentMatchIndex(0);
+          setSelectedPlayers([]);
+          setSessionStats({});
+        }
+      } catch (err) {
+        console.error('Exception checking active session:', err);
+      }
+    };
+    
+    // Check immediately
+    checkActiveSession();
+    
+    // Then set up polling every 2 seconds
+    const intervalId = setInterval(checkActiveSession, 2000);
+    
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [sessionActive]);
   
   // Load players from Supabase on initial load
   useEffect(() => {
@@ -87,6 +134,7 @@ export const AppProvider = ({ children }) => {
     
     fetchStats();
   }, []);
+  
   const removePlayer = async (playerId) => {
     if (!playerId) {
       return false;
@@ -115,6 +163,7 @@ export const AppProvider = ({ children }) => {
       return false;
     }
   };
+  
   // Add a new player with proper UUID
   const addPlayer = async (name) => {
     if (!name || !name.trim()) {
@@ -168,7 +217,7 @@ export const AppProvider = ({ children }) => {
   };
   
   // Start a new session with selected players
-  const startSession = () => {
+  const startSession = async () => {
     if (selectedPlayers.length < 2) {
       setError('Need at least 2 players to start a session');
       return;
@@ -176,9 +225,6 @@ export const AppProvider = ({ children }) => {
     
     try {
       const generatedMatches = generateRotations(selectedPlayers);
-      setMatches(generatedMatches);
-      setCurrentMatchIndex(0);
-      setSessionActive(true);
       
       // Initialize session stats
       const stats = {};
@@ -193,6 +239,28 @@ export const AppProvider = ({ children }) => {
         }
       });
       
+      // Update global state in Supabase first
+      const { error } = await supabase
+        .from('active_session')
+        .update({
+          is_active: true,
+          matches: generatedMatches,
+          current_match_index: 0,
+          selected_players: selectedPlayers,
+          session_stats: stats
+        })
+        .eq('id', 1);
+      
+      if (error) {
+        console.error('Error starting global session:', error);
+        setError('Failed to start global session');
+        return;
+      }
+      
+      // Then update local state
+      setMatches(generatedMatches);
+      setCurrentMatchIndex(0);
+      setSessionActive(true);
       setSessionStats(stats);
       setError(null);
     } catch (err) {
@@ -260,15 +328,31 @@ export const AppProvider = ({ children }) => {
       }
       
       setAllTimeStats(updatedStats);
-    } catch (err) {
-      console.error('Exception ending session:', err);
-    } finally {
-      // Reset session state regardless of errors
+      
+      // Reset global session state in Supabase
+      const { error } = await supabase
+        .from('active_session')
+        .update({
+          is_active: false,
+          matches: [],
+          current_match_index: 0,
+          selected_players: [],
+          session_stats: {}
+        })
+        .eq('id', 1);
+      
+      if (error) {
+        console.error('Error ending global session:', error);
+      }
+      
+      // Reset local session state
       setSessionActive(false);
       setSelectedPlayers([]);
       setMatches([]);
       setCurrentMatchIndex(0);
       setSessionStats({});
+    } catch (err) {
+      console.error('Exception ending session:', err);
     }
   };
   
@@ -319,10 +403,8 @@ export const AppProvider = ({ children }) => {
         if (updatedStats[player1Id]) updatedStats[player1Id].losses += 1;
       }
       
-      setSessionStats(updatedStats);
-      
       // Record match in Supabase with explicit session_date
-      const { error } = await supabase
+      const { error: matchError } = await supabase
         .from('matches')
         .insert({
           player1_id: player1Id,
@@ -332,14 +414,31 @@ export const AppProvider = ({ children }) => {
           session_date: new Date().toISOString()
         });
       
-      if (error) {
-        console.error('Error recording match:', error);
+      if (matchError) {
+        console.error('Error recording match:', matchError);
         // Continue to next match despite error
       }
       
-      // Move to next match
-      if (currentMatchIndex < matches.length - 1) {
-        setCurrentMatchIndex(prev => prev + 1);
+      // Determine next action based on current match index
+      const nextMatchIndex = currentMatchIndex + 1;
+      
+      if (nextMatchIndex < matches.length) {
+        // Move to next match and update global state
+        const { error } = await supabase
+          .from('active_session')
+          .update({
+            current_match_index: nextMatchIndex,
+            session_stats: updatedStats
+          })
+          .eq('id', 1);
+        
+        if (error) {
+          console.error('Error updating global session:', error);
+        }
+        
+        // Update local state
+        setCurrentMatchIndex(nextMatchIndex);
+        setSessionStats(updatedStats);
       } else {
         // End session if it was the last match
         await endSession();
@@ -350,16 +449,14 @@ export const AppProvider = ({ children }) => {
   };
   
   // Generate a quick match between two players
-  const startQuickMatch = (player1, player2) => {
+  const startQuickMatch = async (player1, player2) => {
     if (!player1 || !player2 || player1.id === player2.id) {
       setError('Need two different players for a quick match');
       return;
     }
     
     try {
-      setMatches([{ player1, player2 }]);
-      setCurrentMatchIndex(0);
-      setSessionActive(true);
+      const quickMatch = [{ player1, player2 }];
       
       // Initialize session stats for the two players
       const stats = {
@@ -377,7 +474,30 @@ export const AppProvider = ({ children }) => {
         }
       };
       
+      // Update global state
+      const { error } = await supabase
+        .from('active_session')
+        .update({
+          is_active: true,
+          matches: quickMatch,
+          current_match_index: 0,
+          selected_players: [player1, player2],
+          session_stats: stats
+        })
+        .eq('id', 1);
+      
+      if (error) {
+        console.error('Error starting global quick match:', error);
+        setError('Failed to start global quick match');
+        return;
+      }
+      
+      // Update local state
+      setMatches(quickMatch);
+      setCurrentMatchIndex(0);
+      setSessionActive(true);
       setSessionStats(stats);
+      setSelectedPlayers([player1, player2]);
       setError(null);
     } catch (err) {
       console.error('Error starting quick match:', err);

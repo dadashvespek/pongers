@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
 
 const CurrentMatch = () => {
@@ -6,6 +6,12 @@ const CurrentMatch = () => {
   
   const [player1Score, setPlayer1Score] = useState(0);
   const [player2Score, setPlayer2Score] = useState(0);
+  
+  // Reset scores when current match changes
+  useEffect(() => {
+    setPlayer1Score(0);
+    setPlayer2Score(0);
+  }, [currentMatchIndex]);
   
   if (!matches.length || currentMatchIndex >= matches.length) {
     return null;
@@ -16,13 +22,11 @@ const CurrentMatch = () => {
   
   const handleFinishMatch = () => {
     recordMatchResult(player1Score, player2Score);
-    setPlayer1Score(0);
-    setPlayer2Score(0);
   };
   
   return (
     <div className="current-match">
-      <h3>Current Match</h3>
+      <h3>Current Match {currentMatchIndex + 1} of {matches.length}</h3>
       
       <div className="match-display">
         <div className="player-side">
