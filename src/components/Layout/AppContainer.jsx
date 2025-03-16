@@ -1,6 +1,8 @@
+// src/components/Layout/AppContainer.jsx
 import React, { useState } from 'react';
 import Header from './Header';
 import MatchScheduler from '../MatchScheduler/MatchScheduler';
+import PlayerManagement from '../PlayerManagement/PlayerManagement';
 import ScoreBoard from '../ScoreTracking/ScoreBoard';
 import MatchHistory from '../ScoreTracking/MatchHistory';
 import PlayerStats from '../ScoreTracking/PlayerStats';
@@ -17,6 +19,7 @@ const AppContainer = () => {
       
       <main className="main-content">
         {activeTab === 'scheduler' && <MatchScheduler />}
+        {activeTab === 'players' && <PlayerManagement />}
         {activeTab === 'stats' && <PlayerStats />}
         {activeTab === 'history' && <MatchHistory />}
         {activeTab === 'leaderboard' && <Leaderboard />}

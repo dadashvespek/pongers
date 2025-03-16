@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/components/MatchScheduler/PlayerSelection.jsx
+import React from 'react';
 import { useAppContext } from '../../context/AppContext';
 
 const PlayerSelection = () => {
@@ -7,25 +8,12 @@ const PlayerSelection = () => {
     selectedPlayers, 
     selectPlayer, 
     unselectPlayer,
-    addPlayer
   } = useAppContext();
-  
-  const [newPlayerName, setNewPlayerName] = useState('');
-  
-  const handleAddNewPlayer = async () => {
-    if (!newPlayerName.trim()) return;
-    
-    const player = await addPlayer(newPlayerName.trim());
-    if (player) {
-      selectPlayer(player);
-      setNewPlayerName('');
-    }
-  };
   
   return (
     <div className="player-selection">
       <div className="existing-players">
-        <h3>Select Players</h3>
+        <h3>Select Players for Session</h3>
         <div className="players-grid">
           {players.map(player => (
             <button
@@ -36,20 +24,6 @@ const PlayerSelection = () => {
               {player.name}
             </button>
           ))}
-        </div>
-      </div>
-      
-      <div className="add-new-player">
-        <h3>Add New Player</h3>
-        <div className="new-player-form">
-          <input
-            type="text"
-            value={newPlayerName}
-            onChange={(e) => setNewPlayerName(e.target.value)}
-            placeholder="Enter player name"
-            onKeyPress={(e) => e.key === 'Enter' && handleAddNewPlayer()}
-          />
-          <button onClick={handleAddNewPlayer}>Add Player</button>
         </div>
       </div>
       

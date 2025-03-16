@@ -1,3 +1,4 @@
+// src/components/Layout/Header.jsx
 import React from 'react';
 import { useAppContext } from '../../context/AppContext';
 
@@ -14,6 +15,13 @@ const Header = ({ activeTab, setActiveTab }) => {
           onClick={() => setActiveTab('scheduler')}
         >
           {sessionActive ? 'Current Session' : 'Start Session'}
+        </button>
+        
+        <button 
+          className={`nav-button ${activeTab === 'players' ? 'active' : ''}`}
+          onClick={() => setActiveTab('players')}
+        >
+          Players
         </button>
         
         <button 

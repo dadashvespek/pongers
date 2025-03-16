@@ -87,7 +87,34 @@ export const AppProvider = ({ children }) => {
     
     fetchStats();
   }, []);
-  
+  const removePlayer = async (playerId) => {
+    if (!playerId) {
+      return false;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', playerId);
+      
+      if (error) {
+        console.error('Error removing player:', error);
+        return false;
+      }
+      
+      // Remove from local state
+      setPlayers(prev => prev.filter(p => p.id !== playerId));
+      
+      // Also remove from selected players if present
+      setSelectedPlayers(prev => prev.filter(p => p.id !== playerId));
+      
+      return true;
+    } catch (err) {
+      console.error('Exception removing player:', err);
+      return false;
+    }
+  };
   // Add a new player with proper UUID
   const addPlayer = async (name) => {
     if (!name || !name.trim()) {
@@ -369,6 +396,7 @@ export const AppProvider = ({ children }) => {
     allTimeStats,
     isLoading,
     error,
+    removePlayer,
     addPlayer,
     selectPlayer,
     unselectPlayer,

@@ -1,50 +1,32 @@
 import os
+import pyperclip
+import sys
 
-def create_file_structure():
-   # Root directory structure
-   directories = [
-       'src/components/MatchScheduler',
-       'src/components/ScoreTracking',
-       'src/components/Layout',
-       'src/context',
-       'src/utils',
-       'src/services'
-   ]
-   
-   # Files to create
-   files = [
-       'src/components/MatchScheduler/MatchScheduler.jsx',
-       'src/components/MatchScheduler/PlayerSelection.jsx',
-       'src/components/MatchScheduler/CurrentMatch.jsx',
-       'src/components/MatchScheduler/UpcomingMatches.jsx',
-       'src/components/ScoreTracking/ScoreBoard.jsx',
-       'src/components/ScoreTracking/MatchHistory.jsx',
-       'src/components/ScoreTracking/PlayerStats.jsx',
-       'src/components/ScoreTracking/Leaderboard.jsx',
-       'src/components/Layout/Header.jsx',
-       'src/components/Layout/AppContainer.jsx',
-       'src/context/AppContext.jsx',
-       'src/utils/rotationCalculator.js',
-       'src/services/supabaseClient.js',
-       'src/App.jsx',
-       'src/index.jsx',
-       'src/index.css',
-       'src/App.css'
-   ]
-   
-   # Create directories
-   for directory in directories:
-       os.makedirs(directory, exist_ok=True)
-       print(f"Created directory: {directory}")
-   
-   # Create files
-   for file in files:
-       with open(file, 'w') as f:
-           # You could add template content here if needed
-           pass
-       print(f"Created file: {file}")
-   
-   print("File structure created successfully!")
+def copy_src_folder_to_clipboard(src_path='./src'):
+    result = []
+    file_count = 0
+    
+    for root, dirs, files in os.walk(src_path):
+        rel_path = os.path.relpath(root, os.path.dirname(src_path))
+        if rel_path != '.':
+            result.append(f"\n{rel_path}")
+        
+        for file in files:
+            file_count += 1
+            file_path = os.path.join(root, file)
+            result.append(f"\n{file}")
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    result.append(f"```\n{content}\n```")
+            except Exception as e:
+                result.append(f"[Error reading file: {str(e)}]")
+    
+    output = "\n".join(result)
+    pyperclip.copy(output)
+    print(f"Copied {file_count} files from {src_path} to clipboard")
 
 if __name__ == "__main__":
-   create_file_structure()
+    path = sys.argv[1] if len(sys.argv) > 1 else './src'
+    copy_src_folder_to_clipboard(path)

@@ -217,3 +217,19 @@
       gap: 24px;
     }
   }
+  /* Add to App.css */
+.error-message {
+    margin-top: 20px;
+    padding: 12px;
+    background-color: #ffebee;
+    border: 1px solid #ef5350;
+    border-radius: 4px;
+    color: #c62828;
+  }
+  
+  .loading {
+    padding: 20px;
+    text-align: center;
+    font-size: 16px;
+    color: #666;
+  }
